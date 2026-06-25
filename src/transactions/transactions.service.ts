@@ -4,7 +4,6 @@ import {
   Logger,
   NotFoundException,
   UnprocessableEntityException,
-  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -15,6 +14,7 @@ import { WalletsService } from '../wallet/wallets.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
+import { TransactionLimitService } from './transaction-limit.service';
 
 export interface TransferDto {
   senderId: string;
@@ -29,6 +29,7 @@ export interface TransactionFilters {
   userId?: string;
   status?: TransactionStatus;
   currency?: string;
+  receiptNumber?: string;
   page?: number;
   limit?: number;
 }
@@ -69,7 +70,6 @@ export interface FeeResult {
 }
 
 const FEE_RATE = 0.001; // 0.1% flat fee — replace with injected FeeService
-const DAILY_LIMIT = 50_000; // placeholder daily limit — replace with TransactionLimitService
 const MAX_RETRIES = 3;
 
 @Injectable()
@@ -85,6 +85,7 @@ export class TransactionsService {
     private readonly mailService: MailService,
     private readonly usersService: UsersService,
     private readonly events: EventEmitter2,
+    private readonly limitService: TransactionLimitService,
   ) {}
 
   async transfer(dto: TransferDto): Promise<Transaction> {
@@ -106,6 +107,7 @@ export class TransactionsService {
     // Phase 1: persist PENDING record before any blockchain/balance changes
     const tx = this.txRepo.create({ ...dto, status: TransactionStatus.PENDING });
     await this.txRepo.save(tx);
+    await this.generateReceiptNumber(tx);
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -144,7 +146,7 @@ export class TransactionsService {
     page: number;
     limit: number;
   }> {
-    const { userId, status, currency, page = 1, limit = 20 } = filters;
+    const { userId, status, currency, receiptNumber, page = 1, limit = 20 } = filters;
 
     const qb = this.txRepo
       .createQueryBuilder('tx')
@@ -162,6 +164,9 @@ export class TransactionsService {
     }
     if (currency) {
       qb.andWhere('tx.currency = :currency', { currency });
+    }
+    if (receiptNumber) {
+      qb.andWhere('tx.receiptNumber = :receiptNumber', { receiptNumber });
     }
 
     const [items, total] = await qb.getManyAndCount();
@@ -182,13 +187,24 @@ export class TransactionsService {
     return { feeAmount: Number((amount * FEE_RATE).toFixed(8)) };
   }
 
-  private checkDailyLimit(amount: number): void {
-    // Replace body with TransactionLimitService.check() when available.
-    if (amount > DAILY_LIMIT) {
-      throw new BadRequestException(
-        `Amount ${amount} exceeds daily transaction limit of ${DAILY_LIMIT}`,
-      );
+  private checkDailyLimit(_amount: number): void {
+    // Superseded by TransactionLimitService.check() — kept as no-op for backward compat
+  }
+
+  /** Generate NXF-YYYY-NNNNNN receipt number using a DB sequence (postgres) or timestamp fallback. */
+  private async generateReceiptNumber(tx: Transaction): Promise<void> {
+    try {
+      const result = await this.dataSource.query(
+        `SELECT nextval('transaction_receipt_seq') AS seq`,
+      ) as Array<{ seq: string }>;
+      const seq = String(result[0].seq).padStart(6, '0');
+      const year = new Date().getFullYear();
+      tx.receiptNumber = `NXF-${year}-${seq}`;
+    } catch {
+      // Fallback for non-postgres envs (e.g. sqlite in tests)
+      tx.receiptNumber = `NXF-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
     }
+    await this.txRepo.save(tx);
   }
 
   // ---------------------------------------------------------------------------
@@ -198,7 +214,7 @@ export class TransactionsService {
   async createDeposit(dto: DepositDto): Promise<Transaction> {
     const fee = this.calculateFee(dto.amount);
     const totalChecked = dto.amount + fee.feeAmount; // #742: fee included in limit check
-    this.checkDailyLimit(totalChecked);
+    await this.limitService.check(dto.userId, totalChecked, dto.currency);
 
     const tx = this.txRepo.create({
       senderId: dto.userId,
@@ -211,6 +227,7 @@ export class TransactionsService {
       status: TransactionStatus.PENDING,
     });
     await this.txRepo.save(tx);
+    await this.generateReceiptNumber(tx);
 
     try {
       // Stellar / blockchain submission would happen here
@@ -242,7 +259,7 @@ export class TransactionsService {
   async createWithdrawal(dto: WithdrawalDto): Promise<Transaction> {
     const fee = this.calculateFee(dto.amount);
     const totalChecked = dto.amount + fee.feeAmount; // #742: fee included in limit check
-    this.checkDailyLimit(totalChecked);
+    await this.limitService.check(dto.userId, totalChecked, dto.currency);
 
     const balance = await this.walletsService.getBalance(dto.userId, dto.currency);
     if (balance.balance < totalChecked) {
@@ -260,6 +277,7 @@ export class TransactionsService {
       status: TransactionStatus.PENDING,
     });
     await this.txRepo.save(tx);
+    await this.generateReceiptNumber(tx);
 
     await this.walletsService.adjustBalance(dto.userId, dto.currency, -totalChecked);
 
@@ -294,7 +312,7 @@ export class TransactionsService {
   async createSwap(dto: SwapDto): Promise<Transaction> {
     const fee = this.calculateFee(dto.fromAmount);
     const totalChecked = dto.fromAmount + fee.feeAmount; // #742: fee included in limit check
-    this.checkDailyLimit(totalChecked);
+    await this.limitService.check(dto.userId, totalChecked, dto.fromCurrency);
 
     const balance = await this.walletsService.getBalance(dto.userId, dto.fromCurrency);
     if (balance.balance < totalChecked) {

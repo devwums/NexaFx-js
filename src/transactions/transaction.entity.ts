@@ -51,6 +51,11 @@ export class Transaction {
   @Column({ unique: true })
   reference!: string;
 
+  /** Human-readable receipt number, e.g. NXF-2026-000123 */
+  @Index({ unique: true })
+  @Column({ type: 'varchar', length: 32, nullable: true, unique: true })
+  receiptNumber!: string | null;
+
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown>;
 
@@ -62,10 +67,9 @@ export class Transaction {
 
   @Column({ type: 'timestamp', nullable: true })
   reversedAt!: Date | null;
-  pendingTimeoutAt: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  reversedAt: Date | null;
+  pendingTimeoutAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   reversedBy!: string | null;
@@ -80,7 +84,7 @@ export class Transaction {
   retryCount!: number;
 
   @Column({ type: 'varchar', length: 128, nullable: true })
-  txHash: string | null;
+  txHash!: string | null;
 
   @DeleteDateColumn({ type: 'timestamp', nullable: true })
   deletedAt!: Date | null;

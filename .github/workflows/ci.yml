@@ -30,6 +30,7 @@ jobs:
           src/wallet/wallets.controller.spec.ts
           src/currencies/currencies.service.spec.ts
           src/currencies/currencies.controller.spec.ts
+          src/transactions/transaction-limit.service.spec.ts
           --runInBand
 
       - name: Collect focused coverage
@@ -39,10 +40,12 @@ jobs:
           src/wallet/wallets.controller.spec.ts
           src/currencies/currencies.service.spec.ts
           src/currencies/currencies.controller.spec.ts
+          src/transactions/transaction-limit.service.spec.ts
           --coverage
           --runInBand
           --collectCoverageFrom='wallet/**/*.ts'
           --collectCoverageFrom='currencies/**/*.ts'
+          --collectCoverageFrom='transactions/**/*.ts'
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

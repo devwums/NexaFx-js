@@ -77,6 +77,7 @@ export class TransactionsController {
     @Query('userId') userId?: string,
     @Query('status') status?: TransactionStatus,
     @Query('currency') currency?: string,
+    @Query('receiptNumber') receiptNumber?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -84,6 +85,7 @@ export class TransactionsController {
       userId,
       status,
       currency,
+      receiptNumber,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     };

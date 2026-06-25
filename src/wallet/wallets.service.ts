@@ -5,6 +5,10 @@ import Big from 'big.js';
 import { withTransaction } from '../common/helpers/with-transaction.helper';
 import { WalletBalanceEntity } from './wallet-balance.entity';
 import { WalletBalance } from './wallets.types';
+import {
+  normalizeCurrencyCode,
+  isSupportedCurrency,
+} from '../currencies/supported-currencies';
 
 @Injectable()
 export class WalletsService {
@@ -25,14 +29,10 @@ export class WalletsService {
       return this.getBalance(accountId, normalizedCurrency);
     }
 
-    const upperCurrency = currency.toUpperCase();
-
     return withTransaction(this.dataSource, async (manager) => {
       let wallet = await manager.findOne(WalletBalanceEntity, {
         where: { accountId, currency: normalizedCurrency },
-        ...(driverType === 'postgres'
-          ? { lock: { mode: 'pessimistic_write' as const } }
-          : {}),
+        lock: { mode: 'pessimistic_write' as const },
       });
 
       if (!wallet) {
@@ -43,7 +43,9 @@ export class WalletsService {
         });
       }
 
-      const newBalance = Number(new Big(wallet.balance).plus(new Big(delta)).toFixed(8));
+      const newBalance = Number(
+        new Big(wallet.balance).plus(new Big(delta)).toFixed(8),
+      );
       if (newBalance < 0) {
         throw new BadRequestException('Insufficient balance');
       }
@@ -63,7 +65,7 @@ export class WalletsService {
   }
 
   async getBalance(accountId: string, currency: string): Promise<WalletBalance> {
-    const upperCurrency = currency.toUpperCase();
+    const normalizedCurrency = this.validateCurrency(currency);
 
     const wallet = await this.walletRepository.findOne({
       where: { accountId, currency: normalizedCurrency },

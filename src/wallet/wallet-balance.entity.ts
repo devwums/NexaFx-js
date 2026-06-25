@@ -23,6 +23,10 @@ export class WalletBalanceEntity {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0 })
   balance!: number;
 
+  /** Key version used to encrypt sensitive fields for this wallet. */
+  @Column({ type: 'int', default: 1 })
+  keyVersion!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 
