@@ -357,6 +357,18 @@ export const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().positive())
     .default(() => 30),
+  // Auth Rate Limiting
+  // ============================================
+  THROTTLE_AUTH_LIMIT: z
+    .string()
+    .transform(Number)
+    .pipe(z.number().int().positive())
+    .default(() => 5),
+
+  // ============================================
+  // Stellar Hot Wallet (optional — required only when Stellar is enabled)
+  // ============================================
+  STELLAR_HOT_WALLET_SECRET: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

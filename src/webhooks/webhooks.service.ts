@@ -1,9 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Repository } from 'typeorm';
 import { Queue } from 'bull';
 import { randomUUID } from 'crypto';
+import * as dns from 'dns';
+import * as net from 'net';
 import { WebhookEndpoint } from './webhook-endpoint.entity';
 import {
   WebhookDelivery,
@@ -15,6 +21,74 @@ export interface CreateWebhookEndpointDto {
   url: string;
   secret: string;
   events: string[];
+}
+
+const PRIVATE_CIDR_RANGES = [
+  { start: ip2int('10.0.0.0'), end: ip2int('10.255.255.255') },
+  { start: ip2int('172.16.0.0'), end: ip2int('172.31.255.255') },
+  { start: ip2int('192.168.0.0'), end: ip2int('192.168.255.255') },
+  { start: ip2int('127.0.0.0'), end: ip2int('127.255.255.255') },
+  { start: ip2int('169.254.0.0'), end: ip2int('169.254.255.255') },
+  { start: ip2int('100.64.0.0'), end: ip2int('100.127.255.255') },
+];
+
+function ip2int(ip: string): number {
+  return ip
+    .split('.')
+    .reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
+function isPrivateIp(ip: string): boolean {
+  if (!net.isIPv4(ip)) return true;
+  const n = ip2int(ip);
+  return PRIVATE_CIDR_RANGES.some((r) => n >= r.start && n <= r.end);
+}
+
+async function resolveAndRejectPrivate(hostname: string): Promise<void> {
+  const addresses = await new Promise<string[]>((resolve, reject) => {
+    dns.resolve4(hostname, (err, addrs) => {
+      if (err) reject(err);
+      else resolve(addrs);
+    });
+  });
+  for (const addr of addresses) {
+    if (isPrivateIp(addr)) {
+      throw new BadRequestException(
+        `Webhook URL resolves to a private/internal IP address (${addr}) — SSRF not permitted`,
+      );
+    }
+  }
+}
+
+async function validateWebhookUrl(rawUrl: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new BadRequestException('Webhook URL is not a valid URL');
+  }
+
+  const hostname = parsed.hostname;
+
+  if (
+    hostname === 'localhost' ||
+    hostname === '0.0.0.0' ||
+    hostname.endsWith('.local')
+  ) {
+    throw new BadRequestException(
+      'Webhook URL must not target localhost or link-local addresses',
+    );
+  }
+
+  if (net.isIP(hostname)) {
+    if (isPrivateIp(hostname)) {
+      throw new BadRequestException(
+        'Webhook URL must not target private or internal IP ranges',
+      );
+    }
+  } else {
+    await resolveAndRejectPrivate(hostname);
+  }
 }
 
 @Injectable()
@@ -31,6 +105,8 @@ export class WebhooksService {
   async createEndpoint(
     dto: CreateWebhookEndpointDto,
   ): Promise<WebhookEndpoint> {
+    await validateWebhookUrl(dto.url);
+
     const endpoint = this.endpointsRepository.create({
       ...dto,
       isActive: true,
@@ -43,6 +119,10 @@ export class WebhooksService {
       where: { ownerId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async countActiveEndpoints(ownerId: string): Promise<number> {
+    return this.endpointsRepository.count({ where: { ownerId, isActive: true } });
   }
 
   async listDeliveries(
