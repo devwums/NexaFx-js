@@ -1,12 +1,14 @@
 import {
   Injectable,
   BadRequestException,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import Big from 'big.js';
 import { Transaction, TransactionStatus } from './transaction.entity';
 import { WalletsService } from '../wallet/wallets.service';
 import { AuditService } from '../audit/audit.service';
@@ -36,6 +38,8 @@ export interface ReverseTransactionDto {
 
 @Injectable()
 export class TransactionsService {
+  private readonly logger = new Logger(TransactionsService.name);
+
   constructor(
     @InjectRepository(Transaction)
     private readonly txRepo: Repository<Transaction>,
@@ -63,37 +67,39 @@ export class TransactionsService {
       throw new BadRequestException('Insufficient balance');
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      const tx = manager.create(Transaction, {
-        ...dto,
-        status: TransactionStatus.PENDING,
-      });
-      await manager.save(Transaction, tx);
+    // Phase 1: persist PENDING record before any blockchain/balance changes
+    const tx = this.txRepo.create({ ...dto, status: TransactionStatus.PENDING });
+    await this.txRepo.save(tx);
 
-      await this.walletsService.adjustBalance(
-        dto.senderId,
-        dto.currency,
-        -dto.amount,
-      );
-      await this.walletsService.adjustBalance(
-        dto.receiverId,
-        dto.currency,
-        dto.amount,
-      );
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await this.walletsService.adjustBalance(dto.senderId, dto.currency, -dto.amount);
+        await this.walletsService.adjustBalance(dto.receiverId, dto.currency, dto.amount);
 
-      tx.status = TransactionStatus.COMPLETED;
-      tx.completedAt = new Date();
-      const saved = await manager.save(Transaction, tx);
-      this.events.emit('transactions.completed', {
-        transactionId: saved.id,
-        senderId: saved.senderId,
-        receiverId: saved.receiverId,
-        amount: saved.amount,
-        currency: saved.currency,
-        reference: saved.reference,
+        tx.status = TransactionStatus.COMPLETED;
+        tx.completedAt = new Date();
+        await manager.save(Transaction, tx);
       });
-      return saved;
+    } catch (err) {
+      // Phase 2 failure: DB write after balance adjustment failed.
+      // Leave record as PENDING so reconciliation can recover it.
+      this.logger.error(
+        `CRITICAL: DB confirmation write failed for transaction ${tx.id} (ref=${tx.reference}). ` +
+          `Record left as PENDING for reconciliation recovery.`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      return tx;
+    }
+
+    this.events.emit('transactions.completed', {
+      transactionId: tx.id,
+      senderId: tx.senderId,
+      receiverId: tx.receiverId,
+      amount: tx.amount,
+      currency: tx.currency,
+      reference: tx.reference,
     });
+    return tx;
   }
 
   async findHistory(filters: TransactionFilters): Promise<{
@@ -147,12 +153,12 @@ export class TransactionsService {
       await this.walletsService.adjustBalance(
         transaction.senderId,
         transaction.currency,
-        Number(transaction.amount),
+        Number(new Big(transaction.amount).toFixed(8)),
       );
       await this.walletsService.adjustBalance(
         transaction.receiverId,
         transaction.currency,
-        -Number(transaction.amount),
+        Number(new Big(transaction.amount).neg().toFixed(8)),
       );
 
       const reversal = manager.create(Transaction, {

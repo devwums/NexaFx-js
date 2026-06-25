@@ -1,14 +1,18 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Optional } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
 import { Public } from '../auth/decorators/public.decorator';
 import Redis from 'ioredis';
 import { HealthResponseDto } from './dto/health-response.dto';
+import { BlockchainService } from '../blockchain/blockchain.service';
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Optional() private readonly blockchainService?: BlockchainService,
+  ) {}
 
   @Public()
   @Get()
@@ -22,6 +26,10 @@ export class HealthController {
       this.checkDisk(),
     ]);
 
+    const blockchain = this.blockchainService
+      ? this.blockchainService.getCircuitState()
+      : undefined;
+
     const degraded = [database, redis, memory, disk].some(
       (component) => component.status !== 'up',
     );
@@ -33,6 +41,7 @@ export class HealthController {
         redis,
         memory,
         disk,
+        ...(blockchain ? { blockchain } : {}),
       },
     };
   }

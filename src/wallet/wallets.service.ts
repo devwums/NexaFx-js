@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import Big from 'big.js';
 import { withTransaction } from '../common/helpers/with-transaction.helper';
 import { WalletBalanceEntity } from './wallet-balance.entity';
 import { WalletBalance } from './wallets.types';
@@ -42,7 +43,7 @@ export class WalletsService {
         });
       }
 
-      const newBalance = Number((wallet.balance + delta).toFixed(2));
+      const newBalance = Number(new Big(wallet.balance).plus(new Big(delta)).toFixed(8));
       if (newBalance < 0) {
         throw new BadRequestException('Insufficient balance');
       }
