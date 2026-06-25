@@ -4,6 +4,10 @@ import { DataSource, Repository } from 'typeorm';
 import { withTransaction } from '../common/helpers/with-transaction.helper';
 import { WalletBalanceEntity } from './wallet-balance.entity';
 import { WalletBalance } from './wallets.types';
+import {
+  normalizeCurrencyCode,
+  isSupportedCurrency,
+} from '../currencies/supported-currencies';
 
 @Injectable()
 export class WalletsService {
@@ -24,7 +28,7 @@ export class WalletsService {
       return this.getBalance(accountId, normalizedCurrency);
     }
 
-    const upperCurrency = currency.toUpperCase();
+    const driverType = this.dataSource.options.type;
 
     return withTransaction(this.dataSource, async (manager) => {
       let wallet = await manager.findOne(WalletBalanceEntity, {
@@ -62,7 +66,7 @@ export class WalletsService {
   }
 
   async getBalance(accountId: string, currency: string): Promise<WalletBalance> {
-    const upperCurrency = currency.toUpperCase();
+    const normalizedCurrency = this.validateCurrency(currency);
 
     const wallet = await this.walletRepository.findOne({
       where: { accountId, currency: normalizedCurrency },

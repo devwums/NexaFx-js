@@ -23,55 +23,55 @@ export enum TransactionStatus {
 @Index(['createdAt'])
 export class Transaction {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  senderId: string;
+  senderId!: string;
 
   @Column({ type: 'uuid' })
-  receiverId: string;
+  receiverId!: string;
 
   @Column({ type: 'decimal', precision: 18, scale: 8 })
-  amount: number;
+  amount!: number;
 
   @Column({ length: 10 })
-  currency: string;
+  currency!: string;
 
   @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
-  fee: number;
+  fee!: number;
 
   @Column({
     type: 'enum',
     enum: TransactionStatus,
     default: TransactionStatus.PENDING,
   })
-  status: TransactionStatus;
+  status!: TransactionStatus;
 
   @Index({ unique: true })
   @Column({ unique: true })
-  reference: string;
+  reference!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata!: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date | null;
+  completedAt!: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  reversedAt: Date | null;
+  reversedAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
-  reversedBy: string | null;
+  reversedBy!: string | null;
 
   @Column({ type: 'text', nullable: true })
-  reversalReason: string | null;
+  reversalReason!: string | null;
 
   @Column({ type: 'uuid', nullable: true })
-  reversalTransactionId: string | null;
+  reversalTransactionId!: string | null;
 
   @DeleteDateColumn({ type: 'timestamp', nullable: true })
-  deletedAt: Date | null;
+  deletedAt!: Date | null;
 }
