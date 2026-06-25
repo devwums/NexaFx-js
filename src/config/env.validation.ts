@@ -328,12 +328,21 @@ export const envSchema = z.object({
   // ============================================
   WALLET_ENCRYPTION_KEY: z
     .string()
-    .min(1, 'WALLET_ENCRYPTION_KEY is required')
-    .refine((val) => hexStringRegex.test(val) && val.length === 64, {
-      message: 'WALLET_ENCRYPTION_KEY must be a 64-character hex string',
-    }),
     .length(64, 'WALLET_ENCRYPTION_KEY must be exactly 64 hex characters')
-    .regex(/^[0-9a-fA-F]{64}$/, 'WALLET_ENCRYPTION_KEY must be a valid hex string'),
+    .regex(
+      /^[0-9a-fA-F]{64}$/,
+      'WALLET_ENCRYPTION_KEY must be a valid 64-character hex string',
+    ),
+
+  // ============================================
+  // KYC document storage
+  // ============================================
+  KYC_STORAGE_HOST: z.string().optional(),
+
+  // ============================================
+  // Stellar asset issuers (comma-separated CODE:GADDRESS pairs)
+  // ============================================
+  STELLAR_ASSET_ISSUERS: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

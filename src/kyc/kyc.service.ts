@@ -2,8 +2,10 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Repository } from 'typeorm';
 import { KycDocument, KycDocumentStatus } from './kyc-document.entity';
@@ -20,15 +22,40 @@ export interface ReviewKycDto {
   status: KycDocumentStatus.APPROVED | KycDocumentStatus.REJECTED;
 }
 
+function validateDocumentUrl(url: string, allowedHost: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new BadRequestException('documentUrl must be a valid URL');
+  }
+  if (parsed.hostname !== allowedHost) {
+    throw new BadRequestException(
+      `documentUrl must originate from the authorised storage domain (${allowedHost})`,
+    );
+  }
+}
+
 @Injectable()
 export class KycService {
+  private readonly storageHost: string;
+
   constructor(
     @InjectRepository(KycDocument)
     private readonly kycRepo: Repository<KycDocument>,
     private readonly events: EventEmitter2,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.storageHost =
+      this.config.get<string>('kyc.storageHost') ??
+      (process.env.KYC_STORAGE_HOST || '');
+  }
 
   async submit(dto: SubmitKycDto): Promise<KycDocument> {
+    if (this.storageHost) {
+      validateDocumentUrl(dto.documentUrl, this.storageHost);
+    }
+
     const doc = this.kycRepo.create(dto);
     return this.kycRepo.save(doc);
   }
