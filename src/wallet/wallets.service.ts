@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import Big from 'big.js';
 import { withTransaction } from '../common/helpers/with-transaction.helper';
+import {
+  normalizeCurrencyCode,
+  isSupportedCurrency,
+} from '../currencies/supported-currencies';
 import { WalletBalanceEntity } from './wallet-balance.entity';
 import { WalletBalance } from './wallets.types';
 
@@ -25,7 +29,7 @@ export class WalletsService {
       return this.getBalance(accountId, normalizedCurrency);
     }
 
-    const upperCurrency = currency.toUpperCase();
+    const driverType = this.dataSource.options?.type;
 
     return withTransaction(this.dataSource, async (manager) => {
       let wallet = await manager.findOne(WalletBalanceEntity, {
@@ -43,7 +47,7 @@ export class WalletsService {
         });
       }
 
-      const newBalance = Number(new Big(wallet.balance).plus(new Big(delta)).toFixed(8));
+      const newBalance = Number(new Big(wallet.balance).plus(new Big(delta)).toFixed(2));
       if (newBalance < 0) {
         throw new BadRequestException('Insufficient balance');
       }
@@ -63,7 +67,7 @@ export class WalletsService {
   }
 
   async getBalance(accountId: string, currency: string): Promise<WalletBalance> {
-    const upperCurrency = currency.toUpperCase();
+    const normalizedCurrency = this.validateCurrency(currency);
 
     const wallet = await this.walletRepository.findOne({
       where: { accountId, currency: normalizedCurrency },

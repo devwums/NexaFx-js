@@ -23,6 +23,9 @@ export class WalletBalanceEntity {
   @Column({ type: 'decimal', precision: 20, scale: 2, default: 0 })
   balance!: number;
 
+  @Column({ type: 'boolean', default: false })
+  isPrimary!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 
